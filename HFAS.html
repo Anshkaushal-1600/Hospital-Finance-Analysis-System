@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HFAS | Integrated Hospital Financial System</title>
+    
+    <!-- STACK: Tailwind, Chart.js, SheetJS (for Excel), jsPDF (for Reports), FontAwesome -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script> <!-- ADDED SHEETJS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        /* Theme: Clinical Cleanliness */
+        :root { --bg-dark: #f8fafc; --sidebar: #0f172a; --accent: #0284c7; --text-main: #334155; }
+        body { background-color: var(--bg-dark); color: var(--text-main); font-family: 'Segoe UI', sans-serif; overflow: hidden; }
+        
+        .glass-panel { background: white; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border-radius: 12px; }
+        
+        /* Navigation */
+        .nav-item { cursor: pointer; border-left: 4px solid transparent; transition: all 0.2s; color: #94a3b8; }
+        .nav-item:hover, .nav-item.active { background: #1e293b; border-left-color: var(--accent); color: white; }
+        
+        /* Sliders */
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: var(--accent); cursor: pointer; margin-top: -6px; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #cbd5e1; border-radius: 2px; }
+        
+        /* Tables */
+        .med-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .med-table th { text-align: right; padding: 12px; background: #f1f5f9; color: #475569; font-weight: 700; border-bottom: 2px solid #e2e8f0; }
+        .med-table td { text-align: right; padding: 10px 12px; border-bottom: 1px solid #f8fafc; font-family: 'Consolas', monospace; color: #334155; }
+        .med-table td:first-child { text-align: left; font-family: 'Segoe UI', sans-serif; font-weight: 600; }
+        
+        /* Upload Zone */
+        .upload-zone { border: 2px dashed #cbd5e1; transition: 0.3s; background: #f8fafc; }
+        .upload-zone:hover { border-color: var(--accent); background: #f0f9ff; }
+
+        .hidden { display: none; }
+        .fade-in { animation: fadeIn 0.4s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="flex h-screen text-sm">
+
+    <!-- SIDEBAR -->
+    <div class="w-64 flex-shrink-0 bg-[#0f172a] flex flex-col shadow-2xl z-20">
+        <div class="p-6 border-b border-gray-800">
+            <div class="flex items-center gap-3 text-sky-500 mb-1">
+                <i class="fas fa-hospital-user text-2xl"></i>
+                <h1 class="font-bold text-white text-lg tracking-wide">HFAS <span class="text-sky-500">v3.0</span></h1>
+            </div>
+            <div class="text-[10px] text-gray-500 uppercase tracking-widest pl-1">Integrated System</div>
+        </div>
+
+        <nav class="flex-1 py-6 space-y-1">
+            <div onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-item active px-6 py-3 flex items-center gap-3">
+                <i class="fas fa-chart-pie w-5"></i> Command Center
+            </div>
+            <div onclick="switchTab('upload')" id="nav-upload" class="nav-item px-6 py-3 flex items-center gap-3">
+                <i class="fas fa-cloud-upload-alt w-5"></i> Data Ingestion
+            </div>
+            <div onclick="switchTab('inputs')" id="nav-inputs" class="nav-item px-6 py-3 flex items-center gap-3">
+                <i class="fas fa-sliders-h w-5"></i> Simulation Model
+            </div>
+            <div onclick="switchTab('statements')" id="nav-statements" class="nav-item px-6 py-3 flex items-center gap-3">
+                <i class="fas fa-file-invoice-dollar w-5"></i> 3-Statement View
+            </div>
+            <div onclick="switchTab('ratios')" id="nav-ratios" class="nav-item px-6 py-3 flex items-center gap-3">
+                <i class="fas fa-heartbeat w-5"></i> Clinical KPIs
+            </div>
+        </nav>
+
+        <div class="p-6 border-t border-gray-800">
+            <div class="bg-gray-800 p-3 rounded-lg border border-gray-700">
+                <div class="text-[10px] text-gray-400 uppercase font-bold mb-1">Data Source</div>
+                <div id="dataSourceDisplay" class="text-sm font-bold text-sky-400 flex items-center gap-2">
+                    <i class="fas fa-robot"></i> Simulation Mode
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="flex-1 flex flex-col overflow-hidden relative">
+        
+        <!-- HEADER -->
+        <div class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 shadow-sm z-10">
+            <div class="flex items-center gap-4">
+                <span class="text-gray-400 text-xs font-bold uppercase">Scenario:</span>
+                <select id="scenarioSelector" onchange="loadScenario(this.value)" class="bg-slate-100 border border-slate-300 text-slate-700 text-xs font-bold rounded px-3 py-1.5 outline-none focus:ring-2 focus:ring-sky-500">
+                    <option value="BASE">🔵 Base Budget (FY25)</option>
+                    <option value="STRESS">🔴 Pandemic Stress Test</option>
+                    <option value="OPTIMISTIC">🟢 Growth & Expansion</option>
+                </select>
+            </div>
+            <div class="flex gap-3">
+                <button onclick="downloadReport()" class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition shadow-lg flex items-center gap-2">
+                    <i class="fas fa-file-pdf"></i> Board Report
+                </button>
+            </div>
+        </div>
+
+        <!-- SCROLLABLE AREA -->
+        <div class="flex-1 overflow-y-auto p-8 bg-slate-50 relative">
+            
+            <!-- 1. DASHBOARD -->
+            <div id="dashboard" class="fade-in space-y-6">
+                <!-- TOP KPIS -->
+                <div class="grid grid-cols-4 gap-6">
+                    <div class="glass-panel p-6 border-l-4 border-sky-500">
+                        <div class="text-gray-400 text-xs font-bold uppercase">Net Patient Revenue</div>
+                        <div class="text-2xl font-bold text-slate-800 mt-2" id="kpiRev">...</div>
+                        <div class="text-xs text-green-600 mt-2 font-bold" id="kpiRevTrend">...</div>
+                    </div>
+                    <div class="glass-panel p-6 border-l-4 border-purple-500">
+                        <div class="text-gray-400 text-xs font-bold uppercase">Operating Margin</div>
+                        <div class="text-2xl font-bold text-slate-800 mt-2" id="kpiMargin">...</div>
+                        <div class="text-xs text-gray-500 mt-2">Target: >3.0%</div>
+                    </div>
+                    <div class="glass-panel p-6 border-l-4 border-orange-500">
+                        <div class="text-gray-400 text-xs font-bold uppercase">Days Cash on Hand</div>
+                        <div class="text-2xl font-bold text-slate-800 mt-2" id="kpiCashDays">...</div>
+                        <div class="text-xs text-gray-500 mt-2" id="kpiCashStatus">Liquidity Check</div>
+                    </div>
+                    <div class="glass-panel p-6 border-l-4 border-emerald-500">
+                        <div class="text-gray-400 text-xs font-bold uppercase">Occupancy Rate</div>
+                        <div class="text-2xl font-bold text-slate-800 mt-2" id="kpiOcc">...</div>
+                        <div class="text-xs text-gray-500 mt-2">Capacity Utilization</div>
+                    </div>
+                </div>
+
+                <!-- CHARTS ROW 1 -->
+                <div class="grid grid-cols-3 gap-6 h-80">
+                    <div class="col-span-2 glass-panel p-6 flex flex-col">
+                        <h3 class="text-sm font-bold text-slate-600 mb-4 flex items-center gap-2"><i class="fas fa-chart-area text-sky-500"></i> Revenue vs Net Income Trend</h3>
+                        <div class="flex-1 relative"><canvas id="mainChart"></canvas></div>
+                    </div>
+                    <div class="glass-panel p-6 flex flex-col">
+                        <h3 class="text-sm font-bold text-slate-600 mb-4 flex items-center gap-2"><i class="fas fa-percentage text-emerald-500"></i> Cost Structure</h3>
+                        <div class="flex-1 relative"><canvas id="costChart"></canvas></div>
+                    </div>
+                </div>
+
+                <!-- ALERTS -->
+                <div class="glass-panel p-6 border-l-4 border-red-500 bg-red-50">
+                    <h3 class="text-red-700 font-bold text-sm mb-2"><i class="fas fa-exclamation-triangle"></i> Automated Insights</h3>
+                    <ul id="alertList" class="space-y-1 text-sm text-red-600">
+                        <li>System Initializing...</li>
+                    </ul>
+                </div>
+            </div>
+
+             <!-- 2. DATA INGESTION (NEW FEATURE) -->
+             <div id="upload" class="hidden fade-in h-full flex flex-col items-center justify-center">
+                <div class="upload-zone glass-panel p-12 rounded-xl text-center max-w-2xl w-full cursor-pointer relative" onclick="document.getElementById('fileInput').click()">
+                    <input type="file" id="fileInput" class="hidden" accept=".xlsx, .csv" onchange="handleFileUpload(this)">
+                    
+                    <div class="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i class="fas fa-file-excel text-3xl text-green-600"></i>
+                    </div>
+                    <h3 class="text-2xl font-bold text-slate-800 mb-2">Upload Hospital Financials</h3>
+                    <p class="text-slate-500 mb-6">AI Parser detects: Revenues, Salaries, Supplies, Cash</p>
+                    <button class="bg-sky-600 hover:bg-sky-500 text-white px-8 py-2 rounded-lg font-bold shadow-lg transition">
+                        Select Excel File
+                    </button>
+                </div>
+                
+                <div class="mt-8 text-center space-x-4">
+                    <button onclick="downloadTemplate()" class="text-slate-500 text-xs hover:text-sky-600 font-bold border border-slate-300 px-4 py-2 rounded">
+                        <i class="fas fa-download mr-1"></i> Download Template
+                    </button>
+                    <span class="text-slate-300">|</span>
+                    <button onclick="loadScenario('BASE'); switchTab('dashboard');" class="text-slate-500 text-xs hover:text-sky-600 font-bold">
+                        Return to Simulation
+                    </button>
+                </div>
+            </div>
+
+            <!-- 3. SIMULATION INPUTS -->
+            <div id="inputs" class="hidden fade-in space-y-6">
+                <div class="flex justify-between items-center">
+                    <div>
+                        <h2 class="text-2xl font-bold text-slate-800">Simulation Drivers</h2>
+                        <p class="text-slate-500 text-sm">Adjust operational levers to forecast outcomes.</p>
+                    </div>
+                    <button onclick="loadScenario('BASE')" class="text-xs text-sky-600 hover:underline">Reset</button>
+                </div>
+
+                <div class="grid grid-cols-2 gap-8">
+                    <!-- Volume Drivers -->
+                    <div class="glass-panel p-8">
+                        <h3 class="text-sky-600 font-bold mb-6 border-b pb-2">Volume & Capacity</h3>
+                        
+                        <div class="mb-6">
+                            <div class="flex justify-between text-sm font-bold text-slate-700 mb-2">
+                                <span>Annual Admissions</span>
+                                <span id="valAdm" class="text-sky-600">12,000</span>
+                            </div>
+                            <input type="range" id="slAdm" min="8000" max="16000" step="100" oninput="updateModel()">
+                        </div>
+
+                        <div class="mb-6">
+                            <div class="flex justify-between text-sm font-bold text-slate-700 mb-2">
+                                <span>ALOS (Length of Stay)</span>
+                                <span id="valALOS" class="text-sky-600">4.5 Days</span>
+                            </div>
+                            <input type="range" id="slALOS" min="3.0" max="8.0" step="0.1" oninput="updateModel()">
+                        </div>
+
+                        <div>
+                            <div class="flex justify-between text-sm font-bold text-slate-700 mb-2">
+                                <span>Case Mix Index (Acuity)</span>
+                                <span id="valCMI" class="text-sky-600">1.45</span>
+                            </div>
+                            <input type="range" id="slCMI" min="1.0" max="2.5" step="0.05" oninput="updateModel()">
+                        </div>
+                    </div>
+
+                    <!-- Revenue Cycle -->
+                    <div class="glass-panel p-8">
+                        <h3 class="text-emerald-600 font-bold mb-6 border-b pb-2">Revenue Cycle</h3>
+                        
+                        <div class="mb-6">
+                            <div class="flex justify-between text-sm font-bold text-slate-700 mb-2">
+                                <span>Collection Rate (%)</span>
+                                <span id="valColl" class="text-emerald-600">45%</span>
+                            </div>
+                            <input type="range" id="slColl" min="30" max="60" step="1" oninput="updateModel()">
+                        </div>
+
+                        <div class="mb-6">
+                            <div class="flex justify-between text-sm font-bold text-slate-700 mb-2">
+                                <span>Supply Cost Inflation</span>
+                                <span id="valSupp" class="text-emerald-600">3%</span>
+                            </div>
+                            <input type="range" id="slSupp" min="0" max="15" step="1" oninput="updateModel()">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. STATEMENTS -->
+            <div id="statements" class="hidden fade-in space-y-8">
+                <div class="glass-panel p-6">
+                    <h3 class="text-slate-800 font-bold mb-4">Income Statement</h3>
+                    <table class="med-table" id="tableIS"></table>
+                </div>
+                <div class="glass-panel p-6">
+                    <h3 class="text-slate-800 font-bold mb-4">Balance Sheet</h3>
+                    <table class="med-table" id="tableBS"></table>
+                </div>
+                <div class="glass-panel p-6">
+                    <h3 class="text-slate-800 font-bold mb-4">Cash Flow Statement</h3>
+                    <table class="med-table" id="tableCF"></table>
+                </div>
+            </div>
+
+            <!-- 5. RATIOS -->
+            <div id="ratios" class="hidden fade-in">
+                <div class="glass-panel p-8">
+                    <h2 class="text-2xl font-bold text-slate-800 mb-6">Clinical & Financial KPIs</h2>
+                    <div class="grid grid-cols-2 gap-8">
+                        <div>
+                            <h4 class="text-sky-600 font-bold border-b pb-2 mb-4">Hospital Operations</h4>
+                            <table class="w-full text-sm text-slate-600 space-y-2">
+                                <tr class="border-b border-slate-100 py-2"><td class="py-2">Occupancy Rate</td><td class="text-right font-mono font-bold" id="kpiOccFull">...</td></tr>
+                                <tr class="border-b border-slate-100 py-2"><td class="py-2">Avg Length of Stay (ALOS)</td><td class="text-right font-mono font-bold" id="kpiALOSFull">...</td></tr>
+                                <tr class="border-b border-slate-100 py-2"><td class="py-2">Case Mix Index (CMI)</td><td class="text-right font-mono font-bold" id="kpiCMIFull">...</td></tr>
+                            </table>
+                        </div>
+                        <div>
+                            <h4 class="text-emerald-600 font-bold border-b pb-2 mb-4">Financial Health</h4>
+                            <table class="w-full text-sm text-slate-600 space-y-2">
+                                <tr class="border-b border-slate-100 py-2"><td class="py-2">Operating Margin</td><td class="text-right font-mono font-bold" id="kpiOpMargFull">...</td></tr>
+                                <tr class="border-b border-slate-100 py-2"><td class="py-2">Days Cash on Hand</td><td class="text-right font-mono font-bold" id="kpiDCOHFull">...</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- 1. DATA MODEL ---
+        const LICENSED_BEDS = 300;
+        const BASE_RATE_INPATIENT = 12000;
+        const BASE_RATE_OUTPATIENT = 800;
+        const FIXED_COST_ANNUAL = 85000000;
+
+        let model = {
+            mode: 'SIMULATION', // or 'UPLOAD'
+            years: ['2023', '2024', '2025 (Proj)'],
+            drivers: { admissions: 12000, alos: 4.5, cmi: 1.45, collection: 45, supplyInfl: 3 },
+            uploadedData: null
+        };
+
+        let mainChart = null;
+        let costChart = null;
+
+        // --- 2. INIT ---
+        window.onload = function() {
+            loadScenario('BASE');
+        };
+
+        // --- 3. CALCULATION ENGINE ---
+        function updateModel() {
+            // Only update from sliders if in Simulation Mode
+            if(model.mode === 'SIMULATION') {
+                model.drivers.admissions = parseInt(document.getElementById('slAdm').value);
+                model.drivers.alos = parseFloat(document.getElementById('slALOS').value);
+                model.drivers.cmi = parseFloat(document.getElementById('slCMI').value);
+                model.drivers.collection = parseFloat(document.getElementById('slColl').value); 
+                model.drivers.supplyInfl = parseFloat(document.getElementById('slSupp').value);
+                
+                // Update Slider Labels
+                document.getElementById('valAdm').innerText = model.drivers.admissions.toLocaleString();
+                document.getElementById('valALOS').innerText = model.drivers.alos.toFixed(1);
+                document.getElementById('valCMI').innerText = model.drivers.cmi.toFixed(2);
+                document.getElementById('valColl').innerText = model.drivers.collection + "%";
+                document.getElementById('valSupp').innerText = model.drivers.supplyInfl + "%";
+
+                calculateFinancials();
+            } else {
+                // Upload Mode: Just re-render based on stored uploaded data
+                renderFromUpload();
+            }
+        }
+
+        function calculateFinancials() {
+            const d = model.drivers;
+            
+            // Logic
+            const patientDays = d.admissions * d.alos;
+            const occupancy = (patientDays / (LICENSED_BEDS * 365)) * 100;
+            const grossRevIP = d.admissions * BASE_RATE_INPATIENT * d.cmi;
+            const grossRevOP = (d.admissions * 4) * BASE_RATE_OUTPATIENT;
+            const totalGross = grossRevIP + grossRevOP;
+            const netRev = totalGross * (d.collection / 100);
+
+            const variableCostPerDay = 800 * (1 + (d.supplyInfl/100)); 
+            const totalVarCost = patientDays * variableCostPerDay;
+            const totalExp = FIXED_COST_ANNUAL + totalVarCost;
+            
+            const opIncome = netRev - totalExp;
+            const opMargin = (opIncome / netRev) * 100;
+            const cash = 15000000 + opIncome; 
+            const daysCash = cash / (totalExp / 365);
+
+            updateUI(netRev, totalExp, opIncome, cash, daysCash, opMargin, occupancy);
+        }
+
+        function updateUI(rev, exp, profit, cash, daysCash, margin, occ) {
+            // KPIs
+            const fmt = n => "$" + (n/1e6).toFixed(1) + "M";
+            document.getElementById('kpiRev').innerText = fmt(rev);
+            document.getElementById('kpiMargin').innerText = margin.toFixed(1) + "%";
+            document.getElementById('kpiMargin').className = `text-2xl font-bold mt-2 ${margin > 0 ? 'text-slate-800' : 'text-red-500'}`;
+            document.getElementById('kpiCashDays').innerText = daysCash.toFixed(0);
+            document.getElementById('kpiCashStatus').innerText = daysCash > 100 ? "Healthy" : "Low Liquidity";
+            document.getElementById('kpiCashStatus').className = `text-xs mt-2 font-bold ${daysCash > 100 ? 'text-green-500' : 'text-red-500'}`;
+            document.getElementById('kpiOcc').innerText = occ.toFixed(1) + "%";
+
+            // Full Tables
+            document.getElementById('kpiOccFull').innerText = occ.toFixed(1) + "%";
+            document.getElementById('kpiALOSFull').innerText = model.drivers.alos.toFixed(1) + " Days";
+            document.getElementById('kpiCMIFull').innerText = model.drivers.cmi.toFixed(2);
+            document.getElementById('kpiOpMargFull').innerText = margin.toFixed(1) + "%";
+            document.getElementById('kpiDCOHFull').innerText = daysCash.toFixed(0);
+
+            // Alerts
+            const alerts = document.getElementById('alertList');
+            alerts.innerHTML = "";
+            if(margin < 0) alerts.innerHTML += "<li>⚠️ Operating Loss Detected.</li>";
+            if(daysCash < 60) alerts.innerHTML += "<li>🔴 CRITICAL: Liquidity Risk (<60 Days Cash).</li>";
+            if(occ > 85) alerts.innerHTML += "<li>🟠 High Occupancy (>85%). Capacity Strain.</li>";
+            if(alerts.innerHTML === "") alerts.innerHTML = "<li class='text-green-600'>✅ Operations Stable.</li>";
+
+            // Tables & Charts
+            renderTables(rev, exp, profit, cash);
+            updateCharts(rev, profit, exp);
+        }
+
+        function renderTables(rev, exp, profit, cash) {
+            const is = [
+                ["Net Patient Revenue", (rev*0.9).toFixed(0), (rev*0.95).toFixed(0), rev.toFixed(0)],
+                ["Total Expenses", (exp*0.92).toFixed(0), (exp*0.96).toFixed(0), exp.toFixed(0)],
+                ["Operating Income", ((rev*0.9)-(exp*0.92)).toFixed(0), ((rev*0.95)-(exp*0.96)).toFixed(0), profit.toFixed(0)]
+            ];
+            const bs = [
+                ["Cash", "12,000,000", "14,500,000", cash.toFixed(0)],
+                ["Receivables", "8,000,000", "9,200,000", (rev/12).toFixed(0)],
+                ["Total Assets", "150,000,000", "155,000,000", (155000000+profit).toFixed(0)]
+            ];
+            const cf = [
+                ["Net Income", ((rev*0.9)-(exp*0.92)).toFixed(0), ((rev*0.95)-(exp*0.96)).toFixed(0), profit.toFixed(0)],
+                ["Operating Cash Flow", "15,000,000", "18,000,000", (profit+12000000).toFixed(0)]
+            ];
+
+            const build = (id, data) => {
+                let html = `<thead><tr><th>Item</th><th>2023</th><th>2024</th><th>2025</th></tr></thead><tbody>`;
+                data.forEach(r => html += `<tr><td>${r[0]}</td><td>${Number(r[1]).toLocaleString()}</td><td>${Number(r[2]).toLocaleString()}</td><td class="font-bold text-slate-700">${Number(r[3]).toLocaleString()}</td></tr>`);
+                document.getElementById(id).innerHTML = html + "</tbody>";
+            };
+            build('tableIS', is); build('tableBS', bs); build('tableCF', cf);
+        }
+
+        function updateCharts(rev, profit, exp) {
+            const ctx1 = document.getElementById('mainChart').getContext('2d');
+            const ctx2 = document.getElementById('costChart').getContext('2d');
+            
+            if(mainChart) mainChart.destroy();
+            if(costChart) costChart.destroy();
+
+            mainChart = new Chart(ctx1, {
+                type: 'bar',
+                data: {
+                    labels: model.years,
+                    datasets: [
+                        { label: 'Revenue', data: [rev*0.9, rev*0.95, rev], backgroundColor: '#0ea5e9' },
+                        { label: 'Profit', data: [(rev*0.9)-(rev*0.88), (rev*0.95)-(rev*0.92), profit], type: 'line', borderColor: '#10b981', borderWidth: 2 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+
+            costChart = new Chart(ctx2, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Salaries', 'Supplies', 'Overhead', 'Profit'],
+                    datasets: [{
+                        data: [exp*0.5, exp*0.2, exp*0.3, Math.max(0, profit)],
+                        backgroundColor: ['#475569', '#64748b', '#94a3b8', '#10b981'],
+                        borderWidth: 0
+                    }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+            });
+        }
+
+        // --- 4. DATA INGESTION LOGIC ---
+        function handleFileUpload(input) {
+            const file = input.files[0];
+            if(!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                const json = XLSX.utils.sheet_to_json(sheet, {header: 1});
+                
+                processUploadedData(json);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        function processUploadedData(rows) {
+            // Find Header (202X)
+            let headerIdx = -1;
+            for(let i=0; i<rows.length; i++) {
+                if(rows[i].some(c => String(c).includes('20'))) { headerIdx = i; break; }
+            }
+            if(headerIdx === -1) { alert("Format Error: No years found."); return; }
+            
+            const years = rows[headerIdx].filter(c => String(c).includes('20'));
+            
+            // Fuzzy Matcher
+            const map = {
+                'Revenue': ['revenue', 'patient service', 'total revenue'],
+                'Expenses': ['total expenses', 'operating expenses'],
+                'Income': ['operating income', 'net income', 'profit'],
+                'Cash': ['cash', 'equivalents']
+            };
+            
+            let data = {};
+            rows.forEach(row => {
+                let label = String(row[0]).toLowerCase();
+                for(let [key, aliases] of Object.entries(map)) {
+                    if(aliases.some(a => label.includes(a))) {
+                        data[key] = row.slice(1, 4).map(v => parseFloat(v)); // Get first 3 data cols
+                    }
+                }
+            });
+
+            if(!data.Revenue) { alert("Error: Could not find 'Revenue' row."); return; }
+            
+            // Switch Mode
+            model.mode = 'UPLOAD';
+            model.years = years;
+            model.uploadedData = data;
+            
+            // Visual Updates
+            document.getElementById('dataSourceDisplay').innerHTML = '<i class="fas fa-file-excel"></i> Uploaded: Actuals';
+            document.getElementById('dataSourceDisplay').className = "text-sm font-bold text-emerald-400 flex items-center gap-2";
+            
+            // Disable Inputs
+            document.getElementById('inputs').classList.add('opacity-50', 'pointer-events-none');
+            
+            renderFromUpload();
+            switchTab('dashboard');
+        }
+
+        function renderFromUpload() {
+            const d = model.uploadedData;
+            const idx = d.Revenue.length - 1;
+            const rev = d.Revenue[idx];
+            const exp = d.Expenses ? d.Expenses[idx] : rev * 0.95;
+            const profit = d.Income ? d.Income[idx] : rev - exp;
+            const cash = d.Cash ? d.Cash[idx] : 5000000;
+            const margin = (profit/rev)*100;
+            const daysCash = cash / (exp/365);
+            
+            updateUI(rev, exp, profit, cash, daysCash, margin, 0); // Occ 0 as file usually lacks clinical data
+            
+            // Override Alerts for Upload
+            const alerts = document.getElementById('alertList');
+            alerts.innerHTML = "<li class='text-sky-600 font-bold'>Running Analysis on Uploaded File...</li>";
+            if(margin < 0) alerts.innerHTML += "<li>⚠️ Historical Operating Loss Detected.</li>";
+            else alerts.innerHTML += "<li class='text-green-600'>✅ Historical Profitability Verified.</li>";
+        }
+
+        // --- UTILS ---
+        function loadScenario(type) {
+            document.getElementById('scenarioSelector').value = type;
+            model.mode = 'SIMULATION';
+            document.getElementById('inputs').classList.remove('opacity-50', 'pointer-events-none');
+            document.getElementById('dataSourceDisplay').innerHTML = '<i class="fas fa-robot"></i> Simulation Mode';
+            document.getElementById('dataSourceDisplay').className = "text-sm font-bold text-sky-400 flex items-center gap-2";
+            
+            const s = {
+                BASE: { adm: 12000, alos: 4.5, cmi: 1.45, coll: 45, supp: 3 },
+                STRESS: { adm: 10500, alos: 5.8, cmi: 1.20, coll: 38, supp: 8 },
+                OPTIMISTIC: { adm: 13500, alos: 4.0, cmi: 1.60, coll: 50, supp: 2 }
+            }[type];
+            
+            document.getElementById('slAdm').value = s.adm;
+            document.getElementById('slALOS').value = s.alos;
+            document.getElementById('slCMI').value = s.cmi;
+            document.getElementById('slColl').value = s.coll;
+            document.getElementById('slSupp').value = s.supp;
+            updateModel();
+        }
+
+        function switchTab(id) {
+            ['dashboard', 'inputs', 'statements', 'ratios', 'upload'].forEach(t => document.getElementById(t).classList.add('hidden'));
+            document.getElementById(id).classList.remove('hidden');
+            document.querySelectorAll('.nav-item').forEach(e => e.classList.remove('active'));
+            document.getElementById('nav-'+id).classList.add('active');
+        }
+
+        function downloadTemplate() {
+            const wb = XLSX.utils.book_new();
+            const ws_data = [
+                ["Item", "2023", "2024", "2025"],
+                ["Net Patient Revenue", "50000000", "55000000", "60000000"],
+                ["Total Expenses", "48000000", "52000000", "55000000"],
+                ["Operating Income", "2000000", "3000000", "5000000"],
+                ["Cash", "5000000", "6000000", "8000000"]
+            ];
+            const ws = XLSX.utils.aoa_to_sheet(ws_data);
+            XLSX.utils.book_append_sheet(wb, ws, "Hospital_Data");
+            XLSX.writeFile(wb, "Hospital_Financial_Template.xlsx");
+        }
+
+        function downloadReport() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.text("Hospital Executive Financial Report", 15, 20);
+            doc.text(`Source: ${model.mode}`, 15, 30);
+            doc.autoTable({ html: '#tableIS', startY: 40 });
+            doc.save("Report.pdf");
+        }
+    </script>
+</body>
+</html>
