@@ -36,9 +36,7 @@ The system monitors critical healthcare metrics:
 *   **Days Cash on Hand (DCOH):** A critical liquidity measure for non-profit and for-profit hospitals.
 *   **ALOS Efficiency:** Visualizes the cost impact of extended patient stays.
 
-## 📸 Screenshots
 
-*(Add screenshots of the Command Center, the Scenarios Dropdown, and the PDF Report here)*
 
 ## 🚀 Getting Started
 
